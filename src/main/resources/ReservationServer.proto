@@ -1,0 +1,65 @@
+syntax = "proto3";
+option java_multiple_files = true;
+package ds.adeesha.cw2.grpc;
+
+import "google/protobuf/empty.proto";
+message Item {
+  int32 id = 1;
+  string name = 2;
+  string description = 3;
+  int32 qty = 4;
+  float price = 5;
+  bool isAvailable = 6;
+}
+
+message GetItemsResponse {
+  bool status = 1;
+  repeated Item items = 2;
+}
+
+message AddItemRequest {
+  repeated Item items = 1;
+}
+
+message AddItemResponse {
+  bool status = 1;
+  string description = 2;
+}
+
+message RemoveItemRequest {
+    int32 id = 1;
+}
+
+message RemoveItemResponse {
+  bool status = 1;
+  string description = 2;
+}
+
+message UpdateItemRequest {
+  Item item = 1;
+}
+
+message UpdateItemResponse {
+  bool status = 1;
+  string description = 2;
+}
+
+service GetItemsService {
+  rpc getItems(google.protobuf.Empty)
+      returns(GetItemsResponse);
+}
+
+service AddItemService {
+  rpc addItem(AddItemRequest)
+      returns(AddItemResponse);
+}
+
+service RemoveItemService {
+  rpc removeItem(RemoveItemRequest)
+      returns(RemoveItemResponse);
+}
+
+service UpdateItemService {
+  rpc updateItem(UpdateItemRequest)
+      returns(UpdateItemResponse);
+}
