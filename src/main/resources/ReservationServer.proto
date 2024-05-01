@@ -2,9 +2,8 @@ syntax = "proto3";
 option java_multiple_files = true;
 package ds.adeesha.cw2.grpc;
 
-import "google/protobuf/empty.proto";
 message Item {
-  int32 id = 1;
+  string id = 1;
   string name = 2;
   string description = 3;
   int32 qty = 4;
@@ -12,41 +11,44 @@ message Item {
   bool isAvailable = 6;
 }
 
-message GetItemsResponse {
+message GetItemRequest {
+}
+
+message GetItemResponse {
   bool status = 1;
   repeated Item items = 2;
 }
 
 message AddItemRequest {
-  repeated Item items = 1;
+  Item item = 1;
+  bool isSentByPrimary = 2;
 }
 
 message AddItemResponse {
   bool status = 1;
-  string description = 2;
 }
 
 message RemoveItemRequest {
-    int32 id = 1;
+  int32 id = 1;
+  bool isSentByPrimary = 2;
 }
 
 message RemoveItemResponse {
   bool status = 1;
-  string description = 2;
 }
 
 message UpdateItemRequest {
   Item item = 1;
+  bool isSentByPrimary = 2;
 }
 
 message UpdateItemResponse {
   bool status = 1;
-  string description = 2;
 }
 
-service GetItemsService {
-  rpc getItems(google.protobuf.Empty)
-      returns(GetItemsResponse);
+service GetItemService {
+  rpc getItems(GetItemRequest)
+      returns(GetItemResponse);
 }
 
 service AddItemService {
