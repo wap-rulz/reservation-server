@@ -7,7 +7,7 @@ message Item {
   string name = 2;
   string description = 3;
   int32 qty = 4;
-  float price = 5;
+  double price = 5;
   bool isAvailable = 6;
 }
 
@@ -29,7 +29,7 @@ message AddItemResponse {
 }
 
 message RemoveItemRequest {
-  int32 id = 1;
+  string id = 1;
   bool isSentByPrimary = 2;
 }
 

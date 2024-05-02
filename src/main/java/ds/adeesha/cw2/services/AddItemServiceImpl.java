@@ -21,7 +21,7 @@ public class AddItemServiceImpl extends AddItemServiceGrpc.AddItemServiceImplBas
     private static final Logger logger = LogManager.getLogger(AddItemServiceImpl.class);
 
     private final ReservationServer server;
-    private Pair<String, Item> tempData;
+    private Pair<String, Item> itemToAdd;
     private boolean transactionStatus;
 
     public AddItemServiceImpl(ReservationServer server) {
@@ -30,46 +30,44 @@ public class AddItemServiceImpl extends AddItemServiceGrpc.AddItemServiceImplBas
     }
 
     private void addItem() {
-        if (tempData != null) {
-            server.addItem(tempData.getValue());
-            logger.info("Add Item: {} commited", tempData.getKey());
-            tempData = null;
+        if (itemToAdd != null) {
+            server.addItem(itemToAdd.getValue());
+            logger.info("Add Item: {} commited", itemToAdd.getKey());
+            itemToAdd = null;
         }
     }
 
     @Override
     public void addItem(AddItemRequest request, StreamObserver<AddItemResponse> responseObserver) {
-        synchronized (server) {
-            server.setDistributedTxListener(this);
-            Item item = request.getItem();
-            if (server.isLeader()) {
-                // Act as primary
-                try {
-                    logger.info("Adding new item as Primary");
-                    startDistributedTx(item);
-                    updateSecondaryServers(item);
-                    logger.info("Going to perform transaction");
-                    server.performTransaction();
-                } catch (Exception e) {
-                    logger.error("Error while adding new item: {}", e.getMessage());
-                }
+        server.setDistributedTxListener(this);
+        Item item = request.getItem();
+        if (server.isLeader()) {
+            // Act as primary
+            try {
+                logger.info("Adding new item as Primary");
+                startDistributedTx(item);
+                updateSecondaryServers(item);
+                logger.info("Going to perform transaction");
+                server.performTransaction();
+            } catch (Exception e) {
+                logger.error("Error while adding new item: {}", e.getMessage());
+            }
+        } else {
+            // Act As Secondary
+            if (request.getIsSentByPrimary()) {
+                logger.info("Adding new item on secondary, on Primary's command");
+                startDistributedTx(item);
+                server.voteCommit();
             } else {
-                // Act As Secondary
-                if (request.getIsSentByPrimary()) {
-                    logger.info("Adding new item on secondary, on Primary's command");
-                    startDistributedTx(item);
-                    server.voteCommit();
-                } else {
-                    AddItemResponse response = callPrimary(item);
-                    if (!response.getStatus()) {
-                        transactionStatus = false;
-                    }
+                AddItemResponse response = callPrimary(item);
+                if (!response.getStatus()) {
+                    transactionStatus = false;
                 }
             }
-            AddItemResponse response = AddItemResponse.newBuilder().setStatus(transactionStatus).build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
         }
+        AddItemResponse response = AddItemResponse.newBuilder().setStatus(transactionStatus).build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
     }
 
     private AddItemResponse callPrimary(Item item) {
@@ -104,8 +102,8 @@ public class AddItemServiceImpl extends AddItemServiceGrpc.AddItemServiceImplBas
 
     private void startDistributedTx(Item item) {
         try {
-            server.startTransaction(item);
-            tempData = new Pair<>(item.getId(), item);
+            server.startTransaction(item.getId());
+            itemToAdd = new Pair<>(item.getName(), item);
         } catch (IOException e) {
             logger.error("Error: {}", e.getMessage());
         }
@@ -118,7 +116,7 @@ public class AddItemServiceImpl extends AddItemServiceGrpc.AddItemServiceImplBas
 
     @Override
     public void onGlobalAbort() {
-        tempData = null;
+        itemToAdd = null;
         logger.warn("Transaction Aborted by the Coordinator");
     }
 }

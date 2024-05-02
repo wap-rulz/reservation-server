@@ -14,10 +14,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.zookeeper.KeeperException;
 
 import java.io.IOException;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReservationServer {
@@ -56,7 +53,7 @@ public class ReservationServer {
         server.startServer();
     }
 
-    private void startServer() throws IOException, InterruptedException, KeeperException {
+    private void startServer() throws IOException, InterruptedException {
         Server server = ServerBuilder
                 .forPort(serverPort)
                 .addService(getItemService)
@@ -109,8 +106,8 @@ public class ReservationServer {
         ((DistributedTxParticipant) transaction).voteAbort();
     }
 
-    public void startTransaction(Item item) throws IOException {
-        transaction.start(item.getId(), String.valueOf(UUID.randomUUID()));
+    public void startTransaction(String id) throws IOException {
+        transaction.start(id, String.valueOf(UUID.randomUUID()));
     }
 
     public void setDistributedTxListener(DistributedTxListener listener) {
@@ -161,6 +158,22 @@ public class ReservationServer {
             throw new RuntimeException("Item already exists");
         } else {
             items.put(item.getId(), item);
+        }
+    }
+
+    public void removeItem(String id) {
+        if (!items.containsKey(id)) {
+            throw new RuntimeException("Item with provided id does not exist");
+        } else {
+            items.remove(id);
+        }
+    }
+
+    public void updateItem(Item item) {
+        if (!items.containsKey(item.getId())) {
+            throw new RuntimeException("Item with provided id does not exist");
+        } else {
+            items.replace(item.getId(), item);
         }
     }
 }
