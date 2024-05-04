@@ -1,16 +1,11 @@
 package ds.adeesha.cw2;
 
-import ds.adeesha.cw2.grpc.Item;
-import ds.adeesha.cw2.services.AddItemServiceImpl;
-import ds.adeesha.cw2.services.GetItemServiceImpl;
-import ds.adeesha.cw2.services.RemoveItemServiceImpl;
-import ds.adeesha.cw2.services.UpdateItemServiceImpl;
+import ds.adeesha.cw2.grpc.*;
+import ds.adeesha.cw2.services.*;
 import ds.adeesha.cw2.utility.Constants;
 import ds.adeesha.synchronization.*;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.apache.zookeeper.KeeperException;
 
 import java.io.IOException;
@@ -18,8 +13,6 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReservationServer {
-    private static final Logger logger = LogManager.getLogger(ReservationServer.class);
-
     private final int serverPort;
     private final DistributedLock leaderLock;
     private final AtomicBoolean isLeader = new AtomicBoolean(false);
@@ -27,6 +20,7 @@ public class ReservationServer {
     private final AddItemServiceImpl addItemService;
     private final UpdateItemServiceImpl updateItemService;
     private final RemoveItemServiceImpl removeItemService;
+    private final ReserveItemServiceImpl reserveItemService;
     private DistributedTx transaction;
     private byte[] leaderData;
 
@@ -39,17 +33,18 @@ public class ReservationServer {
         addItemService = new AddItemServiceImpl(this);
         updateItemService = new UpdateItemServiceImpl(this);
         removeItemService = new RemoveItemServiceImpl(this);
+        reserveItemService = new ReserveItemServiceImpl(this);
         transaction = new DistributedTxParticipant();
     }
 
     public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
         DistributedLock.setZooKeeperURL("localhost:2181");
         if (args.length != 1) {
-            logger.warn("Usage: ReservationServer <port>");
+            System.out.println("Usage: ReservationServer <port>");
             System.exit(1);
         }
         int serverPort = Integer.parseInt(args[0].trim());
-        ReservationServer server = new ReservationServer("localhost", serverPort);
+        ReservationServer server = new ReservationServer(Constants.LOCALHOST, serverPort);
         server.startServer();
     }
 
@@ -60,9 +55,10 @@ public class ReservationServer {
                 .addService(addItemService)
                 .addService(updateItemService)
                 .addService(removeItemService)
+                .addService(reserveItemService)
                 .build();
         server.start();
-        logger.info("ReservationServer Started and ready to accept requests on port: {}", serverPort);
+        System.out.println("ReservationServer Started and ready to accept requests on port: }" + serverPort);
         tryToBeLeader();
         server.awaitTermination();
     }
@@ -89,7 +85,7 @@ public class ReservationServer {
     }
 
     private void beTheLeader() {
-        logger.info("I got the leader lock. Now acting as primary server");
+        System.out.println("I got the leader lock. Now acting as primary server");
         isLeader.set(true);
         transaction = new DistributedTxCoordinator();
     }
@@ -119,7 +115,7 @@ public class ReservationServer {
 
         @Override
         public void run() {
-            logger.info("Starting the leader campaign");
+            System.out.println("Starting the leader campaign");
             try {
                 boolean leader = leaderLock.tryAcquireLock();
                 while (!leader) {
@@ -134,7 +130,7 @@ public class ReservationServer {
                 currentLeaderData = null;
                 beTheLeader();
             } catch (Exception e) {
-                logger.error("Error: {}", e.getMessage());
+                System.out.println("Error: " + e.getMessage());
             }
         }
     }
@@ -153,27 +149,44 @@ public class ReservationServer {
         return new ArrayList<>(items.values());
     }
 
-    public void addItem(Item item) {
-        if (items.containsKey(item.getId())) {
+    public void addItem(AddItemRequest request) {
+        if (items.containsKey(request.getItem().getId())) {
             throw new RuntimeException("Item already exists");
         } else {
-            items.put(item.getId(), item);
+            items.put(request.getItem().getId(), request.getItem());
         }
     }
 
-    public void removeItem(String id) {
-        if (!items.containsKey(id)) {
+    public void removeItem(RemoveItemRequest request) {
+        if (!items.containsKey(request.getId())) {
             throw new RuntimeException("Item with provided id does not exist");
         } else {
-            items.remove(id);
+            items.remove(request.getId());
         }
     }
 
-    public void updateItem(Item item) {
-        if (!items.containsKey(item.getId())) {
+    public void updateItem(UpdateItemRequest request) {
+        if (!items.containsKey(request.getItem().getId())) {
             throw new RuntimeException("Item with provided id does not exist");
         } else {
-            items.replace(item.getId(), item);
+            items.replace(request.getItem().getId(), request.getItem());
+        }
+    }
+
+    public boolean checkItemAlreadyReserved(String id, String reservationDate) {
+        Item item = items.get(id);
+        return item.getReservationsMap().containsValue(reservationDate);
+    }
+
+    public void reserveItem(ReserveItemRequest request) {
+        if (!items.containsKey(request.getId())) {
+            throw new RuntimeException("Item with provided id does not exist");
+        } else {
+            if (!checkItemAlreadyReserved(request.getId(), request.getReservationDate())) {
+                Item itemToReserve = items.get(request.getId());
+                itemToReserve.getReservationsMap().put(request.getCustomerNo(), request.getReservationDate());
+                items.replace(request.getId(), itemToReserve);
+            }
         }
     }
 }

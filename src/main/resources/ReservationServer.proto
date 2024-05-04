@@ -6,9 +6,8 @@ message Item {
   string id = 1;
   string name = 2;
   string description = 3;
-  int32 qty = 4;
-  double price = 5;
-  bool isAvailable = 6;
+  double price = 4;
+  map<string, string> reservations = 5;
 }
 
 message GetItemRequest {
@@ -17,6 +16,7 @@ message GetItemRequest {
 message GetItemResponse {
   bool status = 1;
   repeated Item items = 2;
+  string narration = 3;
 }
 
 message AddItemRequest {
@@ -26,6 +26,7 @@ message AddItemRequest {
 
 message AddItemResponse {
   bool status = 1;
+  string narration = 2;
 }
 
 message RemoveItemRequest {
@@ -35,6 +36,7 @@ message RemoveItemRequest {
 
 message RemoveItemResponse {
   bool status = 1;
+  string narration = 2;
 }
 
 message UpdateItemRequest {
@@ -44,6 +46,19 @@ message UpdateItemRequest {
 
 message UpdateItemResponse {
   bool status = 1;
+  string narration = 2;
+}
+
+message ReserveItemRequest {
+  string id = 1;
+  string customerNo = 2;
+  string reservationDate = 3;
+  bool isSentByPrimary = 4;
+}
+
+message ReserveItemResponse {
+  bool status = 1;
+  string narration = 2;
 }
 
 service GetItemService {
@@ -64,4 +79,9 @@ service RemoveItemService {
 service UpdateItemService {
   rpc updateItem(UpdateItemRequest)
       returns(UpdateItemResponse);
+}
+
+service ReserveItemService {
+  rpc reserveItem(ReserveItemRequest)
+      returns(ReserveItemResponse);
 }
