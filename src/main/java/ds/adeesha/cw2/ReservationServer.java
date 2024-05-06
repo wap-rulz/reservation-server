@@ -170,9 +170,8 @@ public class ReservationServer {
     }
 
     public void validateItemAlreadyReserved(String id, String reservationDate) {
-        Item itemToReserve = items.get(id);
-        Map<String, String> reservations = new HashMap<>(itemToReserve.getReservationsMap());
-        if (!reservations.containsValue(reservationDate)) {
+        Map<String, String> reservations = new HashMap<>(items.get(id).getReservationsMap());
+        if (reservations.containsValue(reservationDate)) {
             throw new RuntimeException("Item already reserved on provided date");
         }
     }
