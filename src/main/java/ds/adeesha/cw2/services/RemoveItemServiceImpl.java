@@ -2,7 +2,6 @@ package ds.adeesha.cw2.services;
 
 import ds.adeesha.cw2.ReservationServer;
 import ds.adeesha.cw2.grpc.*;
-import ds.adeesha.cw2.utility.Constants;
 import ds.adeesha.synchronization.DistributedTxListener;
 import io.grpc.ManagedChannel;
 import io.grpc.ManagedChannelBuilder;
@@ -15,8 +14,7 @@ import java.util.List;
 public class RemoveItemServiceImpl extends RemoveItemServiceGrpc.RemoveItemServiceImplBase implements DistributedTxListener {
     private final ReservationServer server;
     private RemoveItemRequest tempData;
-    private boolean transactionStatus = false;
-    private String narration;
+    private boolean status = false;
 
     public RemoveItemServiceImpl(ReservationServer server) {
         this.server = server;
@@ -32,37 +30,40 @@ public class RemoveItemServiceImpl extends RemoveItemServiceGrpc.RemoveItemServi
 
     @Override
     public void removeItem(RemoveItemRequest request, StreamObserver<RemoveItemResponse> responseObserver) {
-        synchronized (ReservationServer.class) {
-            server.setDistributedTxListener(this);
-            if (server.isLeader()) {
-                // Act as primary
-                try {
+        if (server.isLeader()) {
+            // Act as primary
+            try {
+                synchronized (ReservationServer.class) {
+                    server.setDistributedTxListener(this);
+                    server.validateItemIdExists(request.getId());
                     System.out.println("Removing item as Primary");
                     startDistributedTx(request);
                     updateSecondaryServers(request);
                     System.out.println("Going to perform transaction");
                     server.performTransaction();
-                } catch (Exception e) {
-                    System.out.println("Error while removing item: " + e.getMessage());
                 }
-            } else {
-                // Act As Secondary
-                if (request.getIsSentByPrimary()) {
+            } catch (Exception e) {
+                System.out.println("Error while removing item: " + e.getMessage());
+            }
+        } else {
+            // Act As Secondary
+            if (request.getIsSentByPrimary()) {
+                synchronized (ReservationServer.class) {
+                    server.setDistributedTxListener(this);
                     System.out.println("Removing item on secondary, on Primary's command");
                     startDistributedTx(request);
                     server.voteCommit();
-                } else {
-                    callPrimary(request);
                 }
+            } else {
+                RemoveItemResponse primaryResponse = callPrimary(request);
+                status = primaryResponse.getStatus();
             }
-            RemoveItemResponse response = RemoveItemResponse
-                    .newBuilder().
-                    setStatus(transactionStatus)
-                    .setNarration(narration)
-                    .build();
-            responseObserver.onNext(response);
-            responseObserver.onCompleted();
         }
+        RemoveItemResponse response = RemoveItemResponse.newBuilder()
+                .setStatus(status)
+                .build();
+        responseObserver.onNext(response);
+        responseObserver.onCompleted();
     }
 
     private void startDistributedTx(RemoveItemRequest request) {
@@ -85,14 +86,10 @@ public class RemoveItemServiceImpl extends RemoveItemServiceGrpc.RemoveItemServi
     private void updateSecondaryServers(RemoveItemRequest request) throws KeeperException, InterruptedException {
         System.out.println("Updating secondary servers");
         List<String[]> othersData = server.getOthersData();
-        RemoveItemResponse removeItemResponse;
         for (String[] data : othersData) {
             String ipAddress = data[0];
             int port = Integer.parseInt(data[1]);
-            removeItemResponse = callServer(request, true, ipAddress, port);
-            if (!removeItemResponse.getStatus()) {
-                transactionStatus = false;
-            }
+            callServer(request, true, ipAddress, port);
         }
     }
 
@@ -100,20 +97,22 @@ public class RemoveItemServiceImpl extends RemoveItemServiceGrpc.RemoveItemServi
         System.out.println("Calling Server " + IPAddress + ":" + port);
         ManagedChannel channel = ManagedChannelBuilder.forAddress(IPAddress, port).usePlaintext().build();
         RemoveItemServiceGrpc.RemoveItemServiceBlockingStub clientStub = RemoveItemServiceGrpc.newBlockingStub(channel);
-        RemoveItemRequest secondaryRequest = RemoveItemRequest.newBuilder().setId(request.getId()).setIsSentByPrimary(isSentByPrimary).build();
+        RemoveItemRequest secondaryRequest = RemoveItemRequest.newBuilder()
+                .setId(request.getId())
+                .setIsSentByPrimary(isSentByPrimary)
+                .build();
         return clientStub.removeItem(secondaryRequest);
     }
 
     @Override
     public void onGlobalCommit() {
         removeItem();
-        narration = Constants.SUCCESS_NARRATION;
+        status = true;
     }
 
     @Override
     public void onGlobalAbort() {
         tempData = null;
         System.out.println("Transaction Aborted by the Coordinator");
-        narration = Constants.ABORT_NARRATION;
     }
 }

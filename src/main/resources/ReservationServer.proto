@@ -11,12 +11,12 @@ message Item {
 }
 
 message GetItemRequest {
+  bool isState = 1;
 }
 
 message GetItemResponse {
   bool status = 1;
   repeated Item items = 2;
-  string narration = 3;
 }
 
 message AddItemRequest {
@@ -26,7 +26,6 @@ message AddItemRequest {
 
 message AddItemResponse {
   bool status = 1;
-  string narration = 2;
 }
 
 message RemoveItemRequest {
@@ -36,7 +35,6 @@ message RemoveItemRequest {
 
 message RemoveItemResponse {
   bool status = 1;
-  string narration = 2;
 }
 
 message UpdateItemRequest {
@@ -46,7 +44,6 @@ message UpdateItemRequest {
 
 message UpdateItemResponse {
   bool status = 1;
-  string narration = 2;
 }
 
 message ReserveItemRequest {
@@ -58,7 +55,6 @@ message ReserveItemRequest {
 
 message ReserveItemResponse {
   bool status = 1;
-  string narration = 2;
 }
 
 service GetItemService {

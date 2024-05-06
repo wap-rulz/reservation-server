@@ -23,6 +23,7 @@ public class ReservationServer {
     private final ReserveItemServiceImpl reserveItemService;
     private DistributedTx transaction;
     private byte[] leaderData;
+    private boolean isStateSynced;
 
     private final HashMap<String, Item> items = new HashMap<>();
 
@@ -58,7 +59,7 @@ public class ReservationServer {
                 .addService(reserveItemService)
                 .build();
         server.start();
-        System.out.println("ReservationServer Started and ready to accept requests on port: }" + serverPort);
+        System.out.println("ReservationServer Started and ready to accept requests on port: " + serverPort);
         tryToBeLeader();
         server.awaitTermination();
     }
@@ -110,6 +111,16 @@ public class ReservationServer {
         this.transaction.setListener(listener);
     }
 
+    private void syncState() {
+        if (!isStateSynced) {
+            synchronized (this) {
+                String[] primaryAddress = new String(leaderData).split(Constants.COLON);
+                SyncStateService.syncState(this, primaryAddress[0], Integer.parseInt(primaryAddress[1]));
+                isStateSynced = true;
+            }
+        }
+    }
+
     private class LeaderCampaignThread implements Runnable {
         private byte[] currentLeaderData = null;
 
@@ -124,6 +135,7 @@ public class ReservationServer {
                         currentLeaderData = leaderData;
                         setLeaderData(currentLeaderData);
                     }
+                    syncState();
                     Thread.sleep(10000);
                     leader = leaderLock.tryAcquireLock();
                 }
@@ -139,10 +151,34 @@ public class ReservationServer {
         List<String[]> result = new ArrayList<>();
         List<byte[]> othersData = leaderLock.getOthersData();
         for (byte[] data : othersData) {
-            String[] dataStrings = new String(data).split(":");
+            String[] dataStrings = new String(data).split(Constants.COLON);
             result.add(dataStrings);
         }
         return result;
+    }
+
+    public void validateItemIdAlreadyExists(String itemId) {
+        if (items.containsKey(itemId)) {
+            throw new RuntimeException("Item id already exists");
+        }
+    }
+
+    public void validateItemIdExists(String itemId) {
+        if (!items.containsKey(itemId)) {
+            throw new RuntimeException("Item id does not exist");
+        }
+    }
+
+    public void validateItemAlreadyReserved(String id, String reservationDate) {
+        Item itemToReserve = items.get(id);
+        Map<String, String> reservations = new HashMap<>(itemToReserve.getReservationsMap());
+        if (!reservations.containsValue(reservationDate)) {
+            throw new RuntimeException("Item already reserved on provided date");
+        }
+    }
+
+    public void putItem(Item item) {
+        items.put(item.getId(), item);
     }
 
     public List<Item> getItems() {
@@ -150,11 +186,7 @@ public class ReservationServer {
     }
 
     public void addItem(AddItemRequest request) {
-        if (items.containsKey(request.getItem().getId())) {
-            throw new RuntimeException("Item already exists");
-        } else {
-            items.put(request.getItem().getId(), request.getItem());
-        }
+        items.put(request.getItem().getId(), request.getItem());
     }
 
     public void removeItem(RemoveItemRequest request) {
@@ -173,20 +205,21 @@ public class ReservationServer {
         }
     }
 
-    public boolean checkItemAlreadyReserved(String id, String reservationDate) {
-        Item item = items.get(id);
-        return item.getReservationsMap().containsValue(reservationDate);
-    }
-
     public void reserveItem(ReserveItemRequest request) {
         if (!items.containsKey(request.getId())) {
             throw new RuntimeException("Item with provided id does not exist");
         } else {
-            if (!checkItemAlreadyReserved(request.getId(), request.getReservationDate())) {
-                Item itemToReserve = items.get(request.getId());
-                itemToReserve.getReservationsMap().put(request.getCustomerNo(), request.getReservationDate());
-                items.replace(request.getId(), itemToReserve);
-            }
+            Item itemToReserve = items.get(request.getId());
+            Map<String, String> reservations = new HashMap<>(itemToReserve.getReservationsMap());
+            reservations.put(request.getCustomerNo(), request.getReservationDate());
+            Item item = Item.newBuilder()
+                    .setId(itemToReserve.getId())
+                    .setName(itemToReserve.getName())
+                    .setDescription(itemToReserve.getDescription())
+                    .setPrice(itemToReserve.getPrice())
+                    .putAllReservations(reservations)
+                    .build();
+            items.replace(request.getId(), item);
         }
     }
 }
