@@ -2,7 +2,7 @@ package ds.adeesha.cw2;
 
 import ds.adeesha.cw2.grpc.*;
 import ds.adeesha.cw2.services.*;
-import ds.adeesha.cw2.utility.Constants;
+import ds.adeesha.naming.NameServiceClient;
 import ds.adeesha.synchronization.*;
 import io.grpc.Server;
 import io.grpc.ServerBuilder;
@@ -13,6 +13,8 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 public class ReservationServer {
+    private static final String NAME_SERVICE_ADDRESS = "http://localhost:2379";
+    private final int serverId;
     private final int serverPort;
     private final DistributedLock leaderLock;
     private final AtomicBoolean isLeader = new AtomicBoolean(false);
@@ -27,9 +29,16 @@ public class ReservationServer {
 
     private final HashMap<String, Item> items = new HashMap<>();
 
-    public ReservationServer(String host, int port) throws IOException, InterruptedException, KeeperException {
-        this.serverPort = port;
-        leaderLock = new DistributedLock("ReservationServerCluster", buildServerData(host, port));
+    private static final Map<Integer, Integer> serverIdPortMap = Map.ofEntries(
+            Map.entry(1, 11436),
+            Map.entry(2, 11437),
+            Map.entry(3, 11438)
+    );
+
+    public ReservationServer(String host, int id) throws IOException, InterruptedException, KeeperException {
+        serverId = id;
+        serverPort = serverIdPortMap.get(id);
+        leaderLock = new DistributedLock("ReservationServerCluster", buildServerData(host, serverPort));
         getItemService = new GetItemServiceImpl(this);
         addItemService = new AddItemServiceImpl(this);
         updateItemService = new UpdateItemServiceImpl(this);
@@ -41,11 +50,15 @@ public class ReservationServer {
     public static void main(String[] args) throws IOException, InterruptedException, KeeperException {
         DistributedLock.setZooKeeperURL("localhost:2181");
         if (args.length != 1) {
-            System.out.println("Usage: ReservationServer <port>");
+            System.out.println("Usage: ReservationServer <server id>");
             System.exit(1);
         }
-        int serverPort = Integer.parseInt(args[0].trim());
-        ReservationServer server = new ReservationServer(Constants.LOCALHOST, serverPort);
+        int serverId = Integer.parseInt(args[0].trim());
+        if (!serverIdPortMap.containsKey(serverId)) {
+            System.out.println("Invalid server id: " + serverId + ". Server id must be in {1,2,3}");
+            System.exit(1);
+        }
+        ReservationServer server = new ReservationServer("localhost", serverId);
         server.startServer();
     }
 
@@ -59,9 +72,15 @@ public class ReservationServer {
                 .addService(reserveItemService)
                 .build();
         server.start();
+        registerService();
         System.out.println("ReservationServer Started and ready to accept requests on port: " + serverPort);
         tryToBeLeader();
         server.awaitTermination();
+    }
+
+    private void registerService() throws IOException {
+        NameServiceClient client = new NameServiceClient(NAME_SERVICE_ADDRESS);
+        client.registerService(String.valueOf(serverId), "127.0.0.1", serverPort, "tcp");
     }
 
     public synchronized void setLeaderData(byte[] leaderData) {
@@ -69,11 +88,11 @@ public class ReservationServer {
     }
 
     public synchronized String[] getLeaderData() {
-        return new String(leaderData).split(Constants.COLON);
+        return new String(leaderData).split(":");
     }
 
     private String buildServerData(String IP, int port) {
-        return IP + Constants.COLON + port;
+        return IP + ":" + port;
     }
 
     public boolean isLeader() {
@@ -114,7 +133,7 @@ public class ReservationServer {
     private void syncState() {
         if (!isStateSynced) {
             synchronized (this) {
-                String[] primaryAddress = new String(leaderData).split(Constants.COLON);
+                String[] primaryAddress = new String(leaderData).split(":");
                 SyncStateService.syncState(this, primaryAddress[0], Integer.parseInt(primaryAddress[1]));
                 isStateSynced = true;
             }
@@ -136,7 +155,7 @@ public class ReservationServer {
                         setLeaderData(currentLeaderData);
                     }
                     syncState();
-                    Thread.sleep(10000);
+                    Thread.sleep(1000);
                     leader = leaderLock.tryAcquireLock();
                 }
                 currentLeaderData = null;
@@ -151,7 +170,7 @@ public class ReservationServer {
         List<String[]> result = new ArrayList<>();
         List<byte[]> othersData = leaderLock.getOthersData();
         for (byte[] data : othersData) {
-            String[] dataStrings = new String(data).split(Constants.COLON);
+            String[] dataStrings = new String(data).split(":");
             result.add(dataStrings);
         }
         return result;
